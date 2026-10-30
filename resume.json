@@ -1,0 +1,138 @@
+{
+    "personal_info": {
+        "name": "Mohammad Ali Shariat Zade",
+        "location": "Kerman, Iran (Open to Remote)",
+        "email": "mohammadali.shariatzade@gmail.com",
+        "phone": "+98 9131438305",
+        "linkedin": "linkedin.com/in/mohammad-ali-shariat-zade-67418586"
+    },
+    "professional_summary": "Electrical Engineer and Head of Electrical & Instrumentation with 10+ years of hands-on experience in industrial automation and commissioning, and 14 years of teaching experience. Specializes in commissioning and troubleshooting of automation systems, electrical panels, electric motors and drives, industrial networks, instrumentation, pneumatic and hydraulic systems, transformers, weighing systems, and control systems.",
+    "key_skills": [
+        "Industrial Automation (PLC Siemens, Mitsubishi, Omron, Keyence, LS)",
+        "Control Systems (PID, Fuzzy, MIMO, Motion Control, Speed Control, Pressure Control, Temperature Control)",
+        "Industrial Network (CC-Link, Ethernet, Modbus, Profinet, Profibus)",
+        "Pneumatic and Hydraulic systems",
+        "Submittal & Technical Document Review",
+        "Electrical Design & Supervision (MV/LV systems)",
+        "Industrial Instrumentation & Sensors",
+        "SCADA / HMI (Siemens WinCC, TIA Portal, Omron NB, Weintek)",
+        "Power Systems & Distribution (Transformers, Switchgear, Protection)",
+        "Electromotors, Servo and Stepper motors and Drives",
+        "Project Management & Technical Reporting",
+        "Maintenance concepts (PM-EM-CM-MTTR-MTBF)"
+    ],
+    "software_and_tools": [
+        "Simatic Manager",
+        "TIA Portal",
+        "WinCC",
+        "WinCC Flexible",
+        "Logo Soft Comfort",
+        "Easy Motion",
+        "Standard PID Control",
+        "Fuzzy Control",
+        "Setup PTP",
+        "SIWATOOL U",
+        "Drive Monitor",
+        "GX Developer",
+        "GX Works",
+        "MR Configurator",
+        "FR Configurator",
+        "GT Designer",
+        "GT Simulator",
+        "MT Works",
+        "GX Configurator QP",
+        "CX One Designer",
+        "NB Designer",
+        "XP Builder",
+        "PMU Editor",
+        "Easy Builder",
+        "Lenze Drives",
+        "GF Express",
+        "Festo Fluidsim P&H",
+        "Factory I/O",
+        "Python",
+        "AutoCAD",
+        "Navis",
+        "Excel",
+        "Word",
+        "PowerPoint"
+    ],
+    "professional_experience": [
+        {
+            "company": "Butia Iranian Steel",
+            "location": "Kerman, Iran",
+            "role": "Head of Electrical & Instrumentation",
+            "period": "2023 - Present",
+            "responsibilities": [
+                "Leading electrical and instrumentation maintenance for Direct reduction plant.",
+                "Reviewing submittals and supervising electrical project compliance."
+            ]
+        },
+        {
+            "company": "Barez Industrial Group",
+            "location": "Kerman, Iran",
+            "role": "Maintenance & Automation Manager",
+            "period": "2014 - 2023",
+            "responsibilities": [
+                "Led electrical, automation and mechanical maintenance of tire production lines."
+            ]
+        },
+        {
+            "company": "GolGohar Industrial & Mining Co.",
+            "location": "Sirjan, Iran",
+            "role": "Electrical Engineer",
+            "period": "2013 - 2014",
+            "responsibilities": [
+                "Performed maintenance and technical office support for concentrator lines."
+            ]
+        },
+        {
+            "company": "Shahid Bahonar University of Kerman and Shahid Chamran College",
+            "location": "Iran",
+            "role": "Lecturer",
+            "period": "2010 - Present",
+            "responsibilities": [
+                "Taught courses: Electrical Circuits, Power Systems, Control Systems, Industrial Control, Electromechanics.",
+                "Developed laboratory setups (Industrial Circuit Lab, High Voltage Lab, Electrical Machine Lab)."
+            ]
+        }
+    ],
+    "education": [
+        {
+            "degree": "M.Sc. in Electrical Engineering (Control)",
+            "institution": "Shahid Bahonar University of Kerman",
+            "period": "2011 - 2013"
+        },
+        {
+            "degree": "B.Sc. in Electrical Engineering (Power)",
+            "institution": "Shahid Bahonar University of Kerman",
+            "period": "2007 - 2011"
+        }
+    ],
+    "selected_projects": [
+        "PLC & HMI modernization of Tire production lines",
+        "Design and implementation of laser-based and LVDT thickness measurement systems",
+        "Development of monitoring systems for Tire curing presses using Siemens WinCC",
+        "Integration of industrial networks (Profibus, Profinet, Modbus, Ethernet)",
+        "Simulation of pneumatic and hydraulic systems of Tire production lines",
+        "Supervising installation and commissioning of Direct reduction plant"
+    ],
+    "languages": [
+        {
+            "language": "Persian",
+            "proficiency": "Native"
+        },
+        {
+            "language": "English",
+            "proficiency": "Advance"
+        },
+        {
+            "language": "Arabic",
+            "proficiency": "Intermediate"
+        },
+        {
+            "language": "German",
+            "proficiency": "Basic"
+        }
+    ]
+}
