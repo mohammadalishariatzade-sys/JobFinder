@@ -7,7 +7,7 @@ Automated remote job hunter that:
 2. Fetches fresh remote job postings from multiple public APIs & RSS feeds (RemoteOK, Jobicy, Arbeitnow, WeWorkRemotely).
 3. Evaluates and scores job requirements against candidate skills.
 4. Logs jobs scoring above 85% into `jobs_history.csv` to prevent duplicates.
-5. Prints beautiful, real-time alert notifications in the console.
+5. Sends instant push alerts directly to your phone via Telegram.
 6. Runs continuously 24/7 or as a one-shot scanner.
 """
 
@@ -21,22 +21,6 @@ import argparse
 from datetime import datetime
 from typing import Dict, List, Set, Tuple, Optional, Any
 import xml.etree.ElementTree as ET
-import requests
-
-TELEGRAM_BOT_TOKEN = "9215545350:AAFLFWAak5YkGnLyi03yFV18KJmvBVlTDtg"
-TELEGRAM_CHAT_ID = "118524058"
-
-def send_telegram_alert(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
-    }
-    try:
-        requests.post(url, json=payload)
-    except Exception as e:
-        print(f"Failed to send Telegram alert: {e}")
 
 # Attempt importing requests, fall back to urllib if not installed yet
 try:
@@ -54,6 +38,46 @@ try:
     HAS_COLORAMA = True
 except ImportError:
     HAS_COLORAMA = False
+
+# Telegram configuration supporting environment variables (GitHub Actions) with fallbacks
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "9215545350:AAFLFWAak5YkGnLyi03yFV18KJmvBVlTDtg")
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "118524058")
+
+def send_telegram_alert(job: Any, score: float, matched_skills: List[str]) -> None:
+    """Sends a formatted push notification to Telegram when a high match is found."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return
+
+    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+    top_skills = ", ".join(matched_skills[:8])
+    message = (
+        f"🎯 *HIGH JOB MATCH FOUND ({score:.1f}%)*\n\n"
+        f"📌 *Title:* {job.title}\n"
+        f"🏢 *Company:* {job.company or 'Confidential'}\n"
+        f"🌐 *Source:* {job.source} ({job.location})\n"
+        f"🔗 [Apply Here]({job.url})\n"
+        f"🛠 *Matched Skills:* {top_skills}"
+    )
+    payload = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "Markdown",
+        "disable_web_page_preview": True
+    }
+
+    if HAS_REQUESTS:
+        try:
+            requests.post(url, json=payload, timeout=10)
+        except Exception as e:
+            print(f"Failed to send Telegram alert: {e}")
+    else:
+        try:
+            data = json.dumps(payload).encode("utf-8")
+            req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
+            urllib.request.urlopen(req, timeout=10)
+        except Exception as e:
+            print(f"Failed to send Telegram alert via urllib: {e}")
+
 
 # Console styling helpers
 class UI:
@@ -157,15 +181,12 @@ class CandidateProfile:
         - Software & Programming (Weight 2.5)
         - Secondary & Methodological Tools (Weight 1.5)
         """
-        # 1. Target Role & Title keywords
         self.role_keywords = {
             "automation", "control", "electrical", "instrumentation", "scada", "plc",
             "commissioning", "systems engineer", "python", "industrial", "robotics",
             "mechatronics", "hardware", "firmware", "iot", "maintenance"
         }
 
-        # 2. Weighted Technical Keywords
-        # Tier 1: Highest priority - Core Domain & Specialization
         tier_1 = [
             "industrial automation", "plc", "scada", "tia portal", "simatic manager",
             "wincc", "modbus", "profinet", "profibus", "control systems", "pid",
@@ -174,7 +195,6 @@ class CandidateProfile:
         for kw in tier_1:
             self.weighted_keywords[kw.lower()] = 3.5
 
-        # Tier 2: Specific Hardware, Protocols, Vendor Ecosystems
         tier_2 = [
             "siemens", "mitsubishi", "omron", "keyence", "cc-link", "ethernet",
             "hmi", "fuzzy control", "motion control", "servo", "stepper", "drives",
@@ -184,7 +204,6 @@ class CandidateProfile:
         for kw in tier_2:
             self.weighted_keywords[kw.lower()] = 2.8
 
-        # Tier 3: Tools, Software, and Project Methodologies
         tier_3 = [
             "gx developer", "gx works", "cx one", "nb designer", "weintek",
             "easy builder", "lenze", "fluidsim", "navis", "excel", "pm", "cm",
@@ -193,9 +212,7 @@ class CandidateProfile:
         for kw in tier_3:
             self.weighted_keywords[kw.lower()] = 1.8
 
-        # Extract additional keywords from raw resume lists dynamically
         for skill in self.key_skills:
-            # Strip parenthesis and commas for sub-tokens
             clean_phrase = re.sub(r"[^\w\s-]", " ", skill.lower())
             for sub in clean_phrase.split():
                 if len(sub) > 2 and sub not in self.weighted_keywords:
@@ -207,44 +224,31 @@ class CandidateProfile:
                 self.weighted_keywords[tool_clean] = 2.0
 
     def evaluate_job(self, job: JobPosting) -> Tuple[float, List[str], Dict[str, Any]]:
-        """
-        Evaluates a job posting against candidate's profile.
-        Returns:
-            score (0.0 to 100.0)
-            matched_keywords (List of strings)
-            details (Breakdown dictionary)
-        """
+        """Evaluates a job posting against candidate's profile."""
         title_lower = job.title.lower()
         search_text = job.get_searchable_text()
 
-        # 1. Title Scoring (Max 35 points)
         title_score = 0.0
         title_matches = []
         for rkw in self.role_keywords:
-            # Exact boundary matching
             if re.search(r"\b" + re.escape(rkw) + r"\b", title_lower):
                 title_matches.append(rkw)
                 title_score += 12.0
 
-        # Cap title score at 35
         title_score = min(title_score, 35.0)
 
-        # 2. Skill & Tool Keyword Matching (Max 55 points)
         matched_kws = []
         accumulated_skill_score = 0.0
-        max_possible_skill_weight = 40.0  # Normalize around a typical dense job description
+        max_possible_skill_weight = 40.0
 
         for kw, weight in self.weighted_keywords.items():
-            # Use regex word boundaries for accurate matching
             pattern = r"\b" + re.escape(kw) + r"\b"
             if re.search(pattern, search_text):
                 matched_kws.append(kw)
                 accumulated_skill_score += weight
 
-        # Normalized skill score (up to 55 points)
         skill_score = min((accumulated_skill_score / max_possible_skill_weight) * 55.0, 55.0)
 
-        # 3. Domain & Tag Alignment Bonus (Max 10 points)
         domain_score = 0.0
         domain_terms = ["engineering", "automation", "manufacturing", "hardware", "energy", "industrial", "remote"]
         for dt in domain_terms:
@@ -252,19 +256,15 @@ class CandidateProfile:
                 domain_score += 3.0
         domain_score = min(domain_score, 10.0)
 
-        # Total calculated score
         total_score = title_score + skill_score + domain_score
 
-        # Penalty for strongly conflicting negative keywords in title
         conflicting_titles = ["nurse", "sales executive", "marketing lead", "financial accountant", "copywriter", "ui/ux designer"]
         for neg in conflicting_titles:
             if neg in title_lower:
                 total_score = max(0.0, total_score - 50.0)
 
-        # Final rounded score between 0.0 and 100.0
         final_score = round(min(max(total_score, 0.0), 100.0), 1)
 
-        # Sort matched keywords by weight
         sorted_matched = sorted(
             list(set(matched_kws + title_matches)),
             key=lambda k: self.weighted_keywords.get(k, 1.0),
@@ -287,7 +287,6 @@ class JobFetcher:
 
     @classmethod
     def _fetch_url(cls, url: str, timeout: int = 15) -> Optional[str]:
-        """HTTP GET request with fallback between requests and urllib."""
         headers = {"User-Agent": cls.USER_AGENT, "Accept": "application/json, text/xml, */*"}
         if HAS_REQUESTS:
             try:
@@ -311,7 +310,6 @@ class JobFetcher:
 
     @classmethod
     def fetch_remoteok(cls) -> List[JobPosting]:
-        """Fetch remote jobs from RemoteOK Public API."""
         url = "https://remoteok.com/api"
         UI.info("Scanning RemoteOK API...")
         jobs = []
@@ -321,7 +319,6 @@ class JobFetcher:
 
         try:
             data = json.loads(raw)
-            # First item in RemoteOK is disclaimer/metadata
             items = data[1:] if isinstance(data, list) and len(data) > 1 else []
             for item in items:
                 if not isinstance(item, dict):
@@ -344,7 +341,6 @@ class JobFetcher:
 
     @classmethod
     def fetch_jobicy(cls) -> List[JobPosting]:
-        """Fetch remote jobs from Jobicy Public API."""
         url = "https://jobicy.com/api/v2/remote-jobs"
         UI.info("Scanning Jobicy API...")
         jobs = []
@@ -376,7 +372,6 @@ class JobFetcher:
 
     @classmethod
     def fetch_arbeitnow(cls) -> List[JobPosting]:
-        """Fetch remote jobs from Arbeitnow Public API."""
         url = "https://www.arbeitnow.com/api/job-board-api"
         UI.info("Scanning Arbeitnow API...")
         jobs = []
@@ -406,7 +401,6 @@ class JobFetcher:
 
     @classmethod
     def fetch_weworkremotely(cls) -> List[JobPosting]:
-        """Fetch remote jobs from WeWorkRemotely RSS feed."""
         url = "https://weworkremotely.com/remote-jobs.rss"
         UI.info("Scanning WeWorkRemotely RSS Feed...")
         jobs = []
@@ -429,7 +423,6 @@ class JobFetcher:
                 guid = guid_elem.text if guid_elem is not None else url_link
                 date = pub_date.text if pub_date is not None else ""
 
-                # WWR titles are usually in format: "Company: Job Title"
                 company = ""
                 title = raw_title
                 if ":" in raw_title:
@@ -448,7 +441,6 @@ class JobFetcher:
 
     @classmethod
     def fetch_all(cls) -> List[JobPosting]:
-        """Aggregates postings from all active sources."""
         all_jobs: List[JobPosting] = []
         all_jobs.extend(cls.fetch_remoteok())
         all_jobs.extend(cls.fetch_jobicy())
@@ -468,7 +460,6 @@ class HistoryManager:
         self.init_storage()
 
     def init_storage(self) -> None:
-        """Initializes the CSV file if not exists and loads historical job IDs."""
         if not os.path.exists(self.filename):
             with open(self.filename, "w", newline="", encoding="utf-8") as f:
                 writer = csv.writer(f)
@@ -486,7 +477,6 @@ class HistoryManager:
                 UI.warning(f"Could not load previous jobs history: {e}")
 
     def is_duplicate(self, job: JobPosting) -> bool:
-        """Checks if the job was already recorded."""
         if job.job_id in self.seen_job_ids:
             return True
         if job.url and job.url.lower() in self.seen_urls:
@@ -494,7 +484,6 @@ class HistoryManager:
         return False
 
     def record_job(self, job: JobPosting, score: float, matched_skills: List[str]) -> None:
-        """Appends high scoring job to CSV."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         skills_str = ", ".join(matched_skills[:12])
 
@@ -519,7 +508,6 @@ class HistoryManager:
 
 # Notification Display
 def display_job_alert(job: JobPosting, score: float, matched_skills: List[str], details: Dict[str, Any]) -> None:
-    """Renders a clean, high-visibility notification card for matching jobs."""
     score_color = UI.GREEN if score >= 90 else UI.CYAN
     print("\n" + f"{UI.BOLD}{score_color}{'─' * 70}{UI.RESET}")
     print(f" {UI.BOLD}{score_color}🎯 HIGH MATCH FOUND: {score:.1f}%{UI.RESET} | {UI.BOLD}{job.title}{UI.RESET}")
@@ -542,7 +530,6 @@ class RemoteJobHunterBot:
         self.min_score = min_score
 
     def run_cycle(self) -> Dict[str, int]:
-        """Runs one complete fetch, evaluate, log, and notify cycle."""
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         UI.header(f"Job Hunter Cycle Started at {timestamp}")
         UI.info(f"Target Candidate : {self.profile.name}")
@@ -557,7 +544,6 @@ class RemoteJobHunterBot:
             "high_matches": 0
         }
 
-        # Deduplicate within the fetched batch
         unique_batch: Dict[str, JobPosting] = {}
         for j in jobs:
             if j.job_id not in unique_batch:
@@ -574,9 +560,9 @@ class RemoteJobHunterBot:
             if score >= self.min_score:
                 stats["high_matches"] += 1
                 display_job_alert(job, score, matched_skills, details)
+                send_telegram_alert(job, score, matched_skills)  # Triggers Telegram push notification
                 self.history.record_job(job, score, matched_skills)
 
-        # Summary
         UI.header("Cycle Summary")
         print(f" Total Jobs Fetched   : {stats['total_fetched']}")
         print(f" Duplicates Skipped   : {stats['duplicates_skipped']}")
@@ -587,7 +573,6 @@ class RemoteJobHunterBot:
         return stats
 
     def run_daemon(self, interval_minutes: int = 30) -> None:
-        """Runs the bot continuously 24/7 with the specified sleep interval."""
         UI.header(f"24/7 Remote Job Hunter Daemon Initialized")
         UI.info(f"Monitoring every {interval_minutes} minutes. Press Ctrl+C to terminate.")
 
@@ -610,25 +595,25 @@ def main():
     parser.add_argument(
         "--once",
         action="store_true",
-        help="Run a single scan cycle and exit immediately (default is continuous daemon mode if not specified)"
+        help="Run a single scan cycle and exit immediately"
     )
     parser.add_argument(
         "--interval",
         type=int,
         default=30,
-        help="Interval between scans in minutes for daemon mode (default: 30 minutes)"
+        help="Interval between scans in minutes for daemon mode"
     )
     parser.add_argument(
         "--min-score",
         type=float,
         default=85.0,
-        help="Minimum percentage match score to trigger alerts and logging (default: 85.0)"
+        help="Minimum percentage match score to trigger alerts and logging"
     )
     parser.add_argument(
         "--resume",
         type=str,
         default="resume.json",
-        help="Path to resume.json file (default: resume.json)"
+        help="Path to resume.json file"
     )
     parser.add_argument(
         "--test-resume",
@@ -638,7 +623,6 @@ def main():
 
     args = parser.parse_args()
 
-    # Test resume feature
     if args.test_resume:
         UI.header("Testing Resume Profile Extraction")
         profile = CandidateProfile(args.resume)
