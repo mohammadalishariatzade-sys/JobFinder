@@ -1,0 +1,27 @@
+name: 24-7 Remote Job Hunter
+
+on:
+  schedule:
+    - cron: '0 */3 * * *' # Runs automatically in the cloud every 3 hours
+  workflow_dispatch: # Allows manual trigger from GitHub website
+
+jobs:
+  run-job-bot:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install requests colorama
+
+      - name: Run Job Hunter
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: python main.py --once
