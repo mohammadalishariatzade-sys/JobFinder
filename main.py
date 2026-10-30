@@ -1,12 +1,12 @@
-#!/usr/bin/env python3
+#!/usr/init/env python3
 """
 24/7 Remote Job Hunter Bot
 ==========================
 Automated remote job hunter that:
 1. Loads candidate profile and skills from `resume.json`.
 2. Fetches fresh remote job postings from multiple public APIs & RSS feeds (RemoteOK, Jobicy, Arbeitnow, WeWorkRemotely).
-3. Evaluates and scores job requirements against candidate skills.
-4. Logs jobs scoring above 85% into `jobs_history.csv` to prevent duplicates.
+3. Evaluates and scores job requirements against candidate skills with broadened engineering keywords.
+4. Logs jobs scoring above the threshold into `jobs_history.csv` to prevent duplicates.
 5. Sends instant push alerts directly to your phone via Telegram.
 6. Runs continuously 24/7 or as a one-shot scanner.
 """
@@ -181,10 +181,13 @@ class CandidateProfile:
         - Software & Programming (Weight 2.5)
         - Secondary & Methodological Tools (Weight 1.5)
         """
+        # Broadened role keywords including remote-friendly hybrid engineering titles
         self.role_keywords = {
             "automation", "control", "electrical", "instrumentation", "scada", "plc",
             "commissioning", "systems engineer", "python", "industrial", "robotics",
-            "mechatronics", "hardware", "firmware", "iot", "maintenance"
+            "mechatronics", "hardware", "firmware", "iot", "maintenance",
+            "virtual commissioning", "controls engineer", "iiot", "technical support",
+            "application engineer", "solutions architect", "consultant"
         }
 
         tier_1 = [
