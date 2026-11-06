@@ -5,15 +5,18 @@ on:
     - cron: '0 */3 * * *' # Runs automatically in the cloud every 3 hours
   workflow_dispatch: # Allows manual trigger from GitHub website
 
+permissions:
+  contents: write
+
 jobs:
   run-job-bot:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4  # Updated to v4
+        uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v5  # Updated to v5
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
@@ -25,3 +28,10 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py --once
+
+      - name: Commit and push updated history
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add jobs_history.csv
+          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update jobs_history.csv [skip ci]" && git push)

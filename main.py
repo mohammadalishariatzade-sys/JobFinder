@@ -18,9 +18,18 @@ import csv
 import re
 import time
 import argparse
+import html
 from datetime import datetime
 from typing import Dict, List, Set, Tuple, Optional, Any
 import xml.etree.ElementTree as ET
+
+# Ensure UTF-8 output encoding on Windows consoles
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 # Attempt importing requests, fall back to urllib if not installed yet
 try:
@@ -39,44 +48,68 @@ try:
 except ImportError:
     HAS_COLORAMA = False
 
-# Telegram configuration supporting environment variables (GitHub Actions) with fallbacks
-TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "9215545350:AAFLFWAak5YkGnLyi03yFV18KJmvBVlTDtg")
-TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "118524058")
+# Telegram configuration supporting environment variables (GitHub Actions) with reliable fallbacks
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN") or "9215545350:AAFLFWAak5YkGnLyi03yFV18KJmvBVlTDtg"
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID") or "118524058"
 
-def send_telegram_alert(job: Any, score: float, matched_skills: List[str]) -> None:
+def send_telegram_alert(job: Any, score: float, matched_skills: List[str]) -> bool:
     """Sends a formatted push notification to Telegram when a high match is found."""
-    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-        return
+    token = os.environ.get("TELEGRAM_BOT_TOKEN") or TELEGRAM_BOT_TOKEN
+    chat_id = os.environ.get("TELEGRAM_CHAT_ID") or TELEGRAM_CHAT_ID
 
-    url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
-    top_skills = ", ".join(matched_skills[:8])
+    if not token or not chat_id:
+        UI.warning("Telegram alert skipped: Token or Chat ID not configured.")
+        return False
+
+    url = f"https://api.telegram.org/bot{token}/sendMessage"
+    top_skills = ", ".join(matched_skills[:8]) if matched_skills else "General Engineering Profile"
+    
+    # HTML formatted message prevents parse failures from unescaped underscores/asterisks in URLs & titles
     message = (
-        f"🎯 *HIGH JOB MATCH FOUND ({score:.1f}%)*\n\n"
-        f"📌 *Title:* {job.title}\n"
-        f"🏢 *Company:* {job.company or 'Confidential'}\n"
-        f"🌐 *Source:* {job.source} ({job.location})\n"
-        f"🔗 [Apply Here]({job.url})\n"
-        f"🛠 *Matched Skills:* {top_skills}"
+        f"🎯 <b>HIGH JOB MATCH FOUND ({score:.1f}%)</b>\n\n"
+        f"📌 <b>Title:</b> {html.escape(job.title)}\n"
+        f"🏢 <b>Company:</b> {html.escape(job.company or 'Confidential')}\n"
+        f"🌐 <b>Source:</b> {html.escape(job.source)} ({html.escape(job.location)})\n"
+        f"🔗 <a href=\"{html.escape(job.url)}\">Apply Here</a>\n"
+        f"🛠 <b>Matched Skills:</b> {html.escape(top_skills)}"
     )
     payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
+        "chat_id": chat_id,
         "text": message,
-        "parse_mode": "Markdown",
+        "parse_mode": "HTML",
         "disable_web_page_preview": True
     }
 
     if HAS_REQUESTS:
         try:
-            requests.post(url, json=payload, timeout=10)
+            resp = requests.post(url, json=payload, timeout=12)
+            if resp.status_code == 200:
+                UI.success(f"Telegram alert delivered for: {job.title}")
+                return True
+            else:
+                UI.error(f"Telegram API HTTP {resp.status_code}: {resp.text}")
+                return False
         except Exception as e:
-            print(f"Failed to send Telegram alert: {e}")
+            UI.error(f"Failed to send Telegram alert: {e}")
+            return False
     else:
         try:
             data = json.dumps(payload).encode("utf-8")
             req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json"})
-            urllib.request.urlopen(req, timeout=10)
+            with urllib.request.urlopen(req, timeout=12) as response:
+                if response.status == 200:
+                    UI.success(f"Telegram alert delivered for: {job.title}")
+                    return True
+                else:
+                    UI.error(f"Telegram API response status: {response.status}")
+                    return False
+        except urllib.error.HTTPError as he:
+            err_msg = he.read().decode('utf-8', errors='ignore')
+            UI.error(f"Telegram HTTP Error {he.code}: {err_msg}")
+            return False
         except Exception as e:
-            print(f"Failed to send Telegram alert via urllib: {e}")
+            UI.error(f"Failed to send Telegram alert via urllib: {e}")
+            return False
 
 
 # Console styling helpers
@@ -176,54 +209,72 @@ class CandidateProfile:
     def _build_keyword_dictionary(self) -> None:
         """
         Extracts phrases and single words, categorizing by weight:
-        - Core Engineering & Automation (Weight 3.5)
+        - Core Engineering & Automation (Weight 4.0)
         - Specific Platforms & Industrial Networks (Weight 3.0)
-        - Software & Programming (Weight 2.5)
+        - Software, Programming & Electrical Components (Weight 2.5)
         - Secondary & Methodological Tools (Weight 1.5)
         """
+        # Primary engineering titles that denote high alignment
+        self.primary_roles = [
+            "electrical engineer", "electrical design", "automation engineer",
+            "controls engineer", "control systems", "scada engineer", "plc programmer",
+            "plc engineer", "instrumentation engineer", "commissioning engineer",
+            "embedded engineer", "firmware engineer", "hardware engineer",
+            "robotics engineer", "mechatronics engineer", "systems engineer",
+            "iot engineer", "iiot engineer", "solutions architect", "application engineer"
+        ]
+
         # Broadened role keywords including remote-friendly hybrid engineering titles
         self.role_keywords = {
             "automation", "control", "electrical", "instrumentation", "scada", "plc",
             "commissioning", "systems engineer", "python", "industrial", "robotics",
-            "mechatronics", "hardware", "firmware", "iot", "maintenance",
-            "virtual commissioning", "controls engineer", "iiot", "technical support",
+            "mechatronics", "hardware", "firmware", "iot", "iiot", "maintenance",
+            "virtual commissioning", "controls engineer", "technical support",
             "application engineer", "solutions architect", "consultant"
         }
 
         tier_1 = [
             "industrial automation", "plc", "scada", "tia portal", "simatic manager",
-            "wincc", "modbus", "profinet", "profibus", "control systems", "pid",
-            "electrical engineer", "instrumentation", "commissioning", "python"
+            "simatic", "wincc", "modbus", "profinet", "profibus", "control systems", "pid",
+            "electrical engineer", "instrumentation", "commissioning", "motion control"
         ]
         for kw in tier_1:
-            self.weighted_keywords[kw.lower()] = 3.5
+            self.weighted_keywords[kw.lower()] = 4.0
 
         tier_2 = [
             "siemens", "mitsubishi", "omron", "keyence", "cc-link", "ethernet",
-            "hmi", "fuzzy control", "motion control", "servo", "stepper", "drives",
+            "hmi", "fuzzy control", "servo", "stepper", "drives", "vfd", "inverter",
             "pneumatic", "hydraulic", "autocad", "factory i/o", "sensors",
-            "power systems", "switchgear", "transformers", "submittal review"
+            "power systems", "switchgear", "transformers", "submittal review", "python"
         ]
         for kw in tier_2:
-            self.weighted_keywords[kw.lower()] = 2.8
+            self.weighted_keywords[kw.lower()] = 3.0
 
         tier_3 = [
             "gx developer", "gx works", "cx one", "nb designer", "weintek",
             "easy builder", "lenze", "fluidsim", "navis", "excel", "pm", "cm",
-            "mttr", "mtbf", "project management", "technical reporting"
+            "mttr", "mtbf", "project management", "technical reporting", "iiot", "iot"
         ]
         for kw in tier_3:
-            self.weighted_keywords[kw.lower()] = 1.8
+            self.weighted_keywords[kw.lower()] = 2.0
+
+        # Stopwords to avoid false positive weighting on generic corporate words
+        stopwords = {
+            "and", "the", "for", "with", "from", "that", "this", "all", "any", "are",
+            "not", "our", "you", "your", "review", "concepts", "word", "etc", "such",
+            "project", "management", "reporting", "technical", "document", "submittal",
+            "supervision", "systems", "design", "speed", "pressure", "distribution"
+        }
 
         for skill in self.key_skills:
             clean_phrase = re.sub(r"[^\w\s-]", " ", skill.lower())
             for sub in clean_phrase.split():
-                if len(sub) > 2 and sub not in self.weighted_keywords:
+                if len(sub) > 2 and sub not in self.weighted_keywords and sub not in stopwords:
                     self.weighted_keywords[sub] = 1.5
 
         for tool in self.tools:
             tool_clean = tool.strip().lower()
-            if tool_clean not in self.weighted_keywords:
+            if tool_clean not in self.weighted_keywords and tool_clean not in stopwords:
                 self.weighted_keywords[tool_clean] = 2.0
 
     def evaluate_job(self, job: JobPosting) -> Tuple[float, List[str], Dict[str, Any]]:
@@ -231,18 +282,45 @@ class CandidateProfile:
         title_lower = job.title.lower()
         search_text = job.get_searchable_text()
 
+        # Core Technical Anchors: Job MUST mention at least one genuine engineering / hardware / automation term
+        core_technical_anchors = [
+            "plc", "scada", "automation", "electrical", "control systems", "instrumentation",
+            "commissioning", "hardware", "firmware", "embedded", "robotics", "mechatronics",
+            "power systems", "switchgear", "tia portal", "simatic", "wincc", "modbus",
+            "profinet", "profibus", "servo", "vfd", "drives", "sensors", "python", "iot", "iiot"
+        ]
+        has_technical_anchor = any(
+            re.search(r"\b" + re.escape(anchor) + r"\b", search_text)
+            for anchor in core_technical_anchors
+        )
+        if not has_technical_anchor:
+            return 0.0, [], {"title_score": 0.0, "skill_score": 0.0, "domain_score": 0.0, "matched_count": 0}
+
+        # 1. Title Scoring (Max 35.0 pts)
         title_score = 0.0
         title_matches = []
-        for rkw in self.role_keywords:
-            if re.search(r"\b" + re.escape(rkw) + r"\b", title_lower):
-                title_matches.append(rkw)
-                title_score += 12.0
+        for pr in self.primary_roles:
+            if pr in title_lower:
+                title_score = 30.0
+                title_matches.append(pr)
+                break
+
+        if title_score == 0.0:
+            for rkw in self.role_keywords:
+                if re.search(r"\b" + re.escape(rkw) + r"\b", title_lower):
+                    title_matches.append(rkw)
+                    title_score += 15.0
+
+        # Title bonus for engineering / remote focus
+        if any(mod in title_lower for mod in ["engineer", "remote", "lead", "senior", "specialist"]):
+            title_score += 5.0
 
         title_score = min(title_score, 35.0)
 
+        # 2. Skill Scoring (Max 55.0 pts)
         matched_kws = []
         accumulated_skill_score = 0.0
-        max_possible_skill_weight = 40.0
+        target_skill_weight = 15.0  # Balanced target for typical remote engineering job specs
 
         for kw, weight in self.weighted_keywords.items():
             pattern = r"\b" + re.escape(kw) + r"\b"
@@ -250,18 +328,25 @@ class CandidateProfile:
                 matched_kws.append(kw)
                 accumulated_skill_score += weight
 
-        skill_score = min((accumulated_skill_score / max_possible_skill_weight) * 55.0, 55.0)
+        skill_score = min((accumulated_skill_score / target_skill_weight) * 55.0, 55.0)
 
+        # 3. Domain Scoring (Max 10.0 pts)
         domain_score = 0.0
         domain_terms = ["engineering", "automation", "manufacturing", "hardware", "energy", "industrial", "remote"]
         for dt in domain_terms:
-            if dt in job.tags or dt in title_lower:
-                domain_score += 3.0
+            if dt in search_text:
+                domain_score += 2.5
         domain_score = min(domain_score, 10.0)
 
         total_score = title_score + skill_score + domain_score
 
-        conflicting_titles = ["nurse", "sales executive", "marketing lead", "financial accountant", "copywriter", "ui/ux designer"]
+        # 4. Strict Negative Role Penalties
+        conflicting_titles = [
+            "nurse", "sales", "marketing", "accountant", "accounting", "copywriter",
+            "ui/ux", "designer", "recruiter", "talent acquisition", "human resources",
+            "hr ", "legal", "counsel", "public relations", "communications", "content",
+            "writer", "realtor", "jira", "customer success", "division manager", "gtm"
+        ]
         for neg in conflicting_titles:
             if neg in title_lower:
                 total_score = max(0.0, total_score - 50.0)
@@ -512,9 +597,10 @@ class HistoryManager:
 # Notification Display
 def display_job_alert(job: JobPosting, score: float, matched_skills: List[str], details: Dict[str, Any]) -> None:
     score_color = UI.GREEN if score >= 90 else UI.CYAN
-    print("\n" + f"{UI.BOLD}{score_color}{'─' * 70}{UI.RESET}")
-    print(f" {UI.BOLD}{score_color}🎯 HIGH MATCH FOUND: {score:.1f}%{UI.RESET} | {UI.BOLD}{job.title}{UI.RESET}")
-    print(f"{UI.BOLD}{score_color}{'─' * 70}{UI.RESET}")
+    divider = "-" * 70
+    print("\n" + f"{UI.BOLD}{score_color}{divider}{UI.RESET}")
+    print(f" {UI.BOLD}{score_color}🎯 MATCH FOUND: {score:.1f}%{UI.RESET} | {UI.BOLD}{job.title}{UI.RESET}")
+    print(f"{UI.BOLD}{score_color}{divider}{UI.RESET}")
     print(f" {UI.BOLD}Company    :{UI.RESET} {job.company or 'Confidential / Remote'}")
     print(f" {UI.BOLD}Source     :{UI.RESET} {job.source} ({job.location})")
     print(f" {UI.BOLD}Apply Link :{UI.RESET} {UI.CYAN}{job.url}{UI.RESET}")
@@ -522,12 +608,12 @@ def display_job_alert(job: JobPosting, score: float, matched_skills: List[str], 
     if matched_skills:
         top_skills = ", ".join(matched_skills[:10])
         print(f" {UI.BOLD}Matched    :{UI.RESET} {UI.YELLOW}{top_skills}{UI.RESET}")
-    print(f"{score_color}{'─' * 70}{UI.RESET}\n")
+    print(f"{score_color}{divider}{UI.RESET}\n")
 
 
 # Main Bot Orchestrator
 class RemoteJobHunterBot:
-    def __init__(self, resume_path: str = "resume.json", min_score: float = 85.0):
+    def __init__(self, resume_path: str = "resume.json", min_score: float = 45.0):
         self.profile = CandidateProfile(resume_path)
         self.history = HistoryManager("jobs_history.csv")
         self.min_score = min_score
@@ -565,6 +651,7 @@ class RemoteJobHunterBot:
                 display_job_alert(job, score, matched_skills, details)
                 send_telegram_alert(job, score, matched_skills)  # Triggers Telegram push notification
                 self.history.record_job(job, score, matched_skills)
+                time.sleep(1.0)  # Rate limiting for Telegram API & proxy stability
 
         UI.header("Cycle Summary")
         print(f" Total Jobs Fetched   : {stats['total_fetched']}")
@@ -609,8 +696,8 @@ def main():
     parser.add_argument(
         "--min-score",
         type=float,
-        default=85.0,
-        help="Minimum percentage match score to trigger alerts and logging"
+        default=45.0,
+        help="Minimum percentage match score to trigger alerts and logging (default: 45.0)"
     )
     parser.add_argument(
         "--resume",
@@ -623,8 +710,33 @@ def main():
         action="store_true",
         help="Parse resume.json and display recognized skills and weights, then exit"
     )
+    parser.add_argument(
+        "--test-telegram",
+        action="store_true",
+        help="Send a test job alert directly to Telegram to verify credentials and connectivity"
+    )
 
     args = parser.parse_args()
+
+    if args.test_telegram:
+        UI.header("Testing Telegram Bot Connection")
+        dummy_job = JobPosting(
+            job_id="test_001",
+            title="Senior Automation & Electrical Engineer (Verification Test)",
+            company="Antigravity Test Systems",
+            url="https://github.com",
+            description="Testing alert delivery",
+            tags=["automation", "plc", "electrical", "python"],
+            source="System Test",
+            location="Remote"
+        )
+        print("Sending test notification to Telegram...")
+        success = send_telegram_alert(dummy_job, 92.5, ["industrial automation", "plc", "scada", "python", "electrical"])
+        if success:
+            UI.success("Test alert successfully delivered to your Telegram app!")
+        else:
+            UI.error("Failed to deliver alert. Check network connectivity or proxy settings.")
+        return
 
     if args.test_resume:
         UI.header("Testing Resume Profile Extraction")
